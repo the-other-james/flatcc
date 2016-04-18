@@ -34,7 +34,7 @@
  *
  * Note that we reserve hash value 0 for missing or ignored value.
  */
-static inline flatbuffers_thash_t flatbuffers_type_from_name(const char *name)
+static inline flatbuffers_thash_t flatbuffers_type_hash_from_name(const char *name)
 {
     uint32_t hash = 2166136261UL;
     while (*name) {
@@ -53,7 +53,7 @@ static inline flatbuffers_thash_t flatbuffers_type_from_name(const char *name)
  * Note: if type hash is 0, the identifier should be null which
  * we cannot return in this interface.
  */
-static inline void flatbuffers_identifier_from_type(flatbuffers_thash_t type_hash, flatbuffers_fid_t out_identifier)
+static inline void flatbuffers_identifier_from_type_hash(flatbuffers_thash_t type_hash, flatbuffers_fid_t out_identifier)
 {
     out_identifier[0] = type_hash & 0xff;
     type_hash >>= 8;
@@ -65,7 +65,7 @@ static inline void flatbuffers_identifier_from_type(flatbuffers_thash_t type_has
 }
 
 /* Native integer encoding of file identifier. */
-static inline flatbuffers_thash_t flatbuffers_type_from_identifier(const flatbuffers_fid_t identifier)
+static inline flatbuffers_thash_t flatbuffers_type_hash_from_identifier(const flatbuffers_fid_t identifier)
 {
     uint8_t *p = (uint8_t *)identifier;
 
@@ -82,8 +82,31 @@ static inline flatbuffers_thash_t flatbuffers_type_from_identifier(const flatbuf
  */
 static inline void flatbuffers_identifier_from_name(const char *name, flatbuffers_fid_t out_identifier)
 {
-    flatbuffers_identifier_from_type(flatbuffers_type_from_name(name), out_identifier);
+    flatbuffers_identifier_from_type_hash(flatbuffers_type_hash_from_name(name), out_identifier);
 }
+
+/*
+ * This is a collision free hash (a permutation) of the type hash to
+ * provide better distribution for use in hash tables. It is likely not
+ * necessary in praxis, and for uniqueness of identifiers it provides no
+ * advantage over just using the FNV-1a type hash, except when truncating
+ * the identifier to less than 32-bits.
+ *
+ * Note: the output should not be used in transmission. It provides no
+ * additional information and just complicates matters. Furthermore, the
+ * unmodified type hash has the benefit that it can seed a child namespace.
+ */
+static inline uint32_t flatbuffers_disperse_type_hash(flatbuffers_thash_t type_hash)
+{
+    /* http://stackoverflow.com/a/12996028 */
+    uint32_t x = type_hash;
+
+    x = ((x >> 16) ^ x) * 0x45d9f3bUL;
+    x = ((x >> 16) ^ x) * 0x45d9f3bUL;
+    x = ((x >> 16) ^ x);
+    return x;
+}
+
 
 /* We have hardcoded assumptions about identifier size. */
 static_assert(sizeof(flatbuffers_fid_t) == 4, "unexpected file identifier size");

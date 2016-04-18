@@ -67,9 +67,9 @@ enum {
 struct fb_token {
     const char *text;
     long len;
-    long id;
     long linenum;
     long pos;
+    long id;
 };
 
 enum fb_scalar_type {
@@ -400,7 +400,7 @@ static inline uint32_t fb_hash_fnv1a_32_init()
     return 2166136261UL;
 }
 
-static inline uint32_t fb_hash_fnv1a_32_append(uint32_t hash, const char *data, int len)
+static inline uint32_t fb_hash_fnv1a_32_append(uint32_t hash, const char *data, size_t len)
 {
     while (len--) {
         hash ^= *(uint8_t *)data++;
