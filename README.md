@@ -450,7 +450,7 @@ library is shown later on.
 
     cc -I include monster_example.c -o monster_example
 
-    cc --std=c11 -I include monster_example.c -o monster_example
+    cc -std=c11 -I include monster_example.c -o monster_example
 
     cc -D FLATCC_PORTABLE -I include monster_example.c -o monster_example
 
@@ -565,7 +565,7 @@ too large. See also documentation comments in `flatcc_builder.h` and
 
 Compile the example project:
 
-    cc --std=c11 -I include monster_example.c lib/libflatccrt.a -o monster_example
+    cc -std=c11 -I include monster_example.c lib/libflatccrt.a -o monster_example
 
 Note that the runtime library is required for building buffers, but not
 for reading them. If it is incovenient to distribute the runtime library
@@ -573,7 +573,7 @@ for a given target, source files may be used instead. Each feature has
 its own source file, so not all runtime files are needed for building a
 buffer:
 
-    cc --std=c11 -I include monster_example.c \
+    cc -std=c11 -I include monster_example.c \
         src/runtime/emitter.c src/runtime/builder.c \
         -o monster_example
 
@@ -1119,13 +1119,16 @@ the opposite direction or were allowed to be signed. This is a major
 change and not likely to happen for reasons of effort and compatibility,
 but it is worth keeping in mind for a v2.0 of the format.
 
-Vector header fields storing the lengthare defined as `uoffset_t` which
+Vector header fields storing the length are defined as `uoffset_t` which
 is 32-bit wide by default. If `uoffset_t` is redefined this will
 therefore also affect vectors and strings.
 
 The practical buffer size is limited to about half of the `uoffset_t` range
 because vtable references are signed which in effect means that buffers
 are limited to about 2GB by default.
+
+The generated reader and builder API use `size_t` for size and index
+arguments, rather than the underlying `flatbuffers_uoffset_t` type.
 
 
 ## Pitfalls in Error Handling
@@ -1186,7 +1189,7 @@ it detectable by `is_present`.
 
 ## Portability Layer
 
-Some aspects of the portablity layer is not required when --std=c11 is
+Some aspects of the portablity layer is not required when -std=c11 is
 defined on a clang compiler where little endian is avaiable and easily
 detected, or where `<endian.h>` is available and easily detected.
 `flatbuffers_common_reader.h` contains a minimal portability abstraction
