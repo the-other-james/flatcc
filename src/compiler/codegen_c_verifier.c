@@ -7,7 +7,7 @@
 #include <inttypes.h>
 #endif
 
-static int gen_verifier_pretext(output_t *out)
+static int gen_verifier_pretext(fb_output_t *out)
 {
     fprintf(out->fp,
         "#ifndef %s_VERIFIER_H\n"
@@ -26,7 +26,7 @@ static int gen_verifier_pretext(output_t *out)
     return 0;
 }
 
-static int gen_verifier_footer(output_t *out)
+static int gen_verifier_footer(fb_output_t *out)
 {
     gen_pragma_pop(out);
     fprintf(out->fp,
@@ -35,7 +35,7 @@ static int gen_verifier_footer(output_t *out)
     return 0;
 }
 
-static int gen_union_verifier(output_t *out, fb_compound_type_t *ct)
+static int gen_union_verifier(fb_output_t *out, fb_compound_type_t *ct)
 {
     fb_symbol_t *sym;
     fb_member_t *member;
@@ -65,7 +65,7 @@ static int gen_union_verifier(output_t *out, fb_compound_type_t *ct)
     return 0;
 }
 
-static int gen_table_verifier(output_t *out, fb_compound_type_t *ct)
+static int gen_table_verifier(fb_output_t *out, fb_compound_type_t *ct)
 {
     fb_symbol_t *sym;
     fb_member_t *member;
@@ -117,7 +117,7 @@ static int gen_table_verifier(output_t *out, fb_compound_type_t *ct)
                 }
             } else {
                 fprintf(out->fp,
-                        "flatcc_verify_vector_field(td, %"PRIu64", %d, %"PRId16", %"PRIu64", %"PRIu64")",
+                        "flatcc_verify_vector_field(td, %"PRIu64", %d, %"PRId16", %"PRIu64", %"PRIu64"ULL)",
                         member->id, required, member->align, member->size, (uint64_t)FLATBUFFERS_COUNT_MAX(member->size));
             };
             break;
@@ -166,7 +166,7 @@ static int gen_table_verifier(output_t *out, fb_compound_type_t *ct)
             case fb_is_enum:
             case fb_is_struct:
                 fprintf(out->fp,
-                        "flatcc_verify_vector_field(td, %"PRIu64", %d, %"PRId16", %"PRIu64", %"PRIu64")",
+                        "flatcc_verify_vector_field(td, %"PRIu64", %d, %"PRId16", %"PRIu64", %"PRIu64"ULL)",
                         member->id, required, member->align, member->size, (uint64_t)FLATBUFFERS_COUNT_MAX(member->size));
                 break;
             default:
@@ -196,13 +196,12 @@ static int gen_table_verifier(output_t *out, fb_compound_type_t *ct)
             snt.text, snt.text);
     fprintf(out->fp,
             "static inline int %s_verify_as_root_with_type_hash(const void *buf, size_t bufsiz, %sthash_t thash)\n"
-            "{ __flatbuffers_thash_write_to_pe(&thash, thash);\n"
-            "  return flatcc_verify_table_as_root(buf, bufsiz, thash ? (const char *)&thash : 0, &__%s_table_verifier);\n}\n\n",
+            "{\n    return flatcc_verify_table_as_typed_root(buf, bufsiz, thash, &__%s_table_verifier);\n}\n\n",
             snt.text, nsc, snt.text);
     return 0;
 }
 
-static int gen_struct_verifier(output_t *out, fb_compound_type_t *ct)
+static int gen_struct_verifier(fb_output_t *out, fb_compound_type_t *ct)
 {
     fb_scoped_name_t snt;
 
@@ -215,13 +214,12 @@ static int gen_struct_verifier(output_t *out, fb_compound_type_t *ct)
             snt.text, snt.text, ct->align, ct->size);
     fprintf(out->fp,
             "static inline int %s_verify_as_typed_root(const void *buf, size_t bufsiz)\n"
-            "{\n    return flatcc_verify_struct_as_root(buf, bufsiz, %s_type_identifier, %"PRIu16", %"PRIu64");\n}\n\n",
+            "{\n    return flatcc_verify_struct_as_typed_root(buf, bufsiz, %s_type_hash, %"PRIu16", %"PRIu64");\n}\n\n",
             snt.text, snt.text, ct->align, ct->size);
     fprintf(out->fp,
             "static inline int %s_verify_as_root_with_type_hash(const void *buf, size_t bufsiz, %sthash_t thash)\n"
-            "{ __flatbuffers_thash_write_to_pe(&thash, thash);\n"
-            "    return flatcc_verify_struct_as_root(buf, bufsiz, %s_type_identifier, %"PRIu16", %"PRIu64");\n}\n\n",
-            snt.text, out->nsc, snt.text, ct->align, ct->size);
+            "{\n    return flatcc_verify_struct_as_typed_root(buf, bufsiz, thash, %"PRIu16", %"PRIu64");\n}\n\n",
+            snt.text, out->nsc, ct->align, ct->size);
     fprintf(out->fp,
             "static inline int %s_verify_as_root_with_identifer(const void *buf, size_t bufsiz, const char *fid)\n"
             "{\n    return flatcc_verify_struct_as_root(buf, bufsiz, fid, %"PRIu16", %"PRIu64");\n}\n\n",
@@ -229,7 +227,7 @@ static int gen_struct_verifier(output_t *out, fb_compound_type_t *ct)
     return 0;
 }
 
-static int gen_verifier_prototypes(output_t *out)
+static int gen_verifier_prototypes(fb_output_t *out)
 {
     fb_symbol_t *sym;
     fb_scoped_name_t snt;
@@ -249,7 +247,7 @@ static int gen_verifier_prototypes(output_t *out)
     return 0;
 }
 
-static int gen_union_verifiers(output_t *out)
+static int gen_union_verifiers(fb_output_t *out)
 {
     fb_symbol_t *sym;
 
@@ -262,7 +260,7 @@ static int gen_union_verifiers(output_t *out)
     return 0;
 }
 
-static int gen_struct_verifiers(output_t *out)
+static int gen_struct_verifiers(fb_output_t *out)
 {
     fb_symbol_t *sym;
 
@@ -275,7 +273,7 @@ static int gen_struct_verifiers(output_t *out)
     return 0;
 }
 
-static int gen_table_verifiers(output_t *out)
+static int gen_table_verifiers(fb_output_t *out)
 {
     fb_symbol_t *sym;
 
@@ -288,7 +286,7 @@ static int gen_table_verifiers(output_t *out)
     return 0;
 }
 
-int fb_gen_c_verifier(output_t *out)
+int fb_gen_c_verifier(fb_output_t *out)
 {
     gen_verifier_pretext(out);
     gen_verifier_prototypes(out);

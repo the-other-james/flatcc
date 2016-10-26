@@ -8,11 +8,14 @@
 #include "monster_test_reader.h"
 #include "monster_test_json_parser.h"
 #include "flatcc/support/hexdump.h"
+#include "flatcc/support/cdump.h"
 #include "flatcc/support/readfile.h"
 
 #if FLATCC_BENCHMARK
 #include "flatcc/support/elapsed.h"
 #endif
+
+const char *filename = "monsterdata_test.golden";
 
 #define BENCH_TITLE "monsterdata_test.golden"
 
@@ -78,7 +81,6 @@ int test_parse()
     flatcc_builder_t *B = &builder;
     int ret = -1;
     int flags = 0;
-    const char *filename = "monsterdata_test.golden";
 
     flatcc_builder_init(B);
 
@@ -97,6 +99,8 @@ int test_parse()
     fprintf(stderr, "input size: %lu, output size: %lu\n",
             (unsigned long)in_size, (unsigned long)out_size);
     verify_parse(flatbuffer);
+
+    cdump("golden", flatbuffer, out_size, stdout);
 
     flatcc_builder_reset(B);
 #if FLATCC_BENCHMARK
@@ -140,12 +144,21 @@ failed:
     goto done;
 }
 
+/* We take arguments so test can run without copying sources. */
+#define usage \
+"wrong number of arguments:\n" \
+"usage: <program> [<input-filename>]\n"
+
 int main(int argc, const char *argv[])
 {
-    (void)argc;
-    (void)argv;
-
     fprintf(stderr, "JSON parse test\n");
+
+    if (argc != 1 && argc != 2) {
+        fprintf(stderr, usage);
+        exit(1);
+    }
+    if (argc == 2) {
+        filename = argv[1];
+    }
     return test_parse();
 }
-

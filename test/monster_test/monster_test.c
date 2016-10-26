@@ -38,7 +38,6 @@
 
 static const char zero_pad[100];
 
-
 int verify_empty_monster(void *buffer)
 {
     /* Proper id given. */
@@ -384,7 +383,6 @@ int verify_monster(void *buffer)
     nsc(bool_vec_t) bools;
     ns(Stat_table_t) stat;
     int booldata[] = { 0, 1, 1, 0 };
-    size_t offset;
     const uint8_t *inv;
     size_t i;
 
@@ -421,8 +419,7 @@ int verify_monster(void *buffer)
         printf("Position is absent\n");
         return -1;
     }
-    offset = (char *)vec - (char *)buffer;
-    if (offset & 15) {
+    if ((size_t)vec & 15) {
         printf("Force align of Vec3 struct not correct\n");
     }
     /* -3.2f is actually -3.20000005 and not -3.2 due to representation loss. */
@@ -509,16 +506,24 @@ int verify_monster(void *buffer)
         printf("Test4 vector is not the right length.\n");
         return -1;
     }
-    for (i = 0; i < 5; ++i) {
-        test = ns(Test_vec_at(testvec, i));
-        if (testvec_data[i].a != ns(Test_a(test))) {
-            printf("Test4 vec failed at index %d, member a\n", (int)i);
-            return -1;
+    /*
+     * This particular test requires that the in-memory
+     * array layout matches the array layout in the buffer.
+     */
+    if (flatbuffers_is_native_pe()) {
+        for (i = 0; i < 5; ++i) {
+            test = ns(Test_vec_at(testvec, i));
+            if (testvec_data[i].a != ns(Test_a(test))) {
+                printf("Test4 vec failed at index %d, member a\n", (int)i);
+                return -1;
+            }
+            if (testvec_data[i].b != ns(Test_b(test))) {
+                printf("Test4 vec failed at index %d, member a\n", (int)i);
+                return -1;
+            }
         }
-        if (testvec_data[i].b != ns(Test_b(test))) {
-            printf("Test4 vec failed at index %d, member a\n", (int)i);
-            return -1;
-        }
+    } else {
+        printf("SKIPPING DIRECT VECTOR ACCESS WITH NON-NATIVE ENDIAN PROTOCOL\n");
     }
     monsters = ns(Monster_testarrayoftables(monster));
     if (ns(Monster_vec_len(monsters)) != 8) {
@@ -667,7 +672,7 @@ int verify_monster(void *buffer)
     return 0;
 }
 
-int gen_monster(flatcc_builder_t *B)
+int gen_monster(flatcc_builder_t *B, int with_size)
 {
     uint8_t inv[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 };
     ns(Vec3_t) *vec;
@@ -677,8 +682,9 @@ int gen_monster(flatcc_builder_t *B)
     nsc(string_ref_t) name;
     nsc(string_ref_t) strings[3];
     nsc(bool_t)bools[] = { 0, 1, 1, 0 };
-
     flatcc_builder_reset(B);
+
+
 
     /*
      * Some FlatBuffer language interfaces require a string and other
@@ -686,7 +692,11 @@ int gen_monster(flatcc_builder_t *B)
      * is being created. This is not necessary (but possible) here
      * because the flatcc_builder maintains an internal stack.
      */
-    ns(Monster_start_as_root(B));
+    if (with_size) {
+        ns(Monster_start_as_root_with_size(B));
+    } else {
+        ns(Monster_start_as_root(B));
+    }
 
     ns(Monster_hp_add(B, 80));
     vec = ns(Monster_pos_start(B));
@@ -869,7 +879,7 @@ int test_monster(flatcc_builder_t *B)
     size_t size;
     int ret;
 
-    gen_monster(B);
+    gen_monster(B, 0);
 
     buffer = flatcc_builder_finalize_buffer(B, &size);
     hexdump("monster table", buffer, size, stderr);
@@ -880,6 +890,33 @@ int test_monster(flatcc_builder_t *B)
     ret = verify_monster(buffer);
 
     free(buffer);
+    return ret;
+}
+
+int test_monster_with_size(flatcc_builder_t *B)
+{
+    void *buffer, *frame;
+    size_t size, size2, esize;
+    int ret;
+
+    gen_monster(B, 1);
+
+    frame = flatcc_builder_finalize_buffer(B, &size);
+    hexdump("monster table with size", frame, size, stderr);
+
+    buffer = flatbuffers_read_size_prefix(frame, &size2);
+    esize = size - sizeof(flatbuffers_uoffset_t);
+    if (size2 != esize) {
+        printf("Size prefix has unexpected size, got %i, expected %i\n", (int)size2, (int)esize);
+        return -1;
+    }
+    if ((ret = ns(Monster_verify_as_root(buffer, size2)))) {
+        printf("Monster buffer with size prefix failed to verify, got: %s\n", flatcc_verify_error_string(ret));
+        return -1;
+    }
+    ret = verify_monster(buffer);
+
+    free(frame);
     return ret;
 }
 
@@ -1107,6 +1144,7 @@ int test_clone_slice(flatcc_builder_t *B)
     ns(Monster_ref_t) monster_ref;
     ns(Test_t) *t;
     ns(Test_struct_t) test4;
+    ns(Test_struct_t) elem4;
     void *buffer, *buf2;
     size_t size;
     int ret = -1;
@@ -1227,11 +1265,17 @@ int test_clone_slice(flatcc_builder_t *B)
         printf("struct vector test4 not cloned with correct length\n");
         goto done;
     }
-    if (ns(Test_vec_at(test4, 0))->a != 22) {
+    elem4 = ns(Test_vec_at(test4, 0));
+    if (ns(Test_a(elem4)) != 22) {
         printf("elem 0 of test4 not cloned\n");
         goto done;
     }
-    if (ns(Test_vec_at(test4, 1))->a != 44) {
+    if (flatbuffers_is_native_pe() && ns(Test_vec_at(test4, 0))->a != 22) {
+        printf("elem 0 of test4 not cloned, direct access\n");
+        goto done;
+    }
+    elem4 = ns(Test_vec_at(test4, 1));
+    if (ns(Test_a(elem4)) != 44) {
         printf("elem 1 of test4 not cloned\n");
         goto done;
     }
@@ -1240,7 +1284,8 @@ int test_clone_slice(flatcc_builder_t *B)
         printf("sliced struct vec not sliced\n");
         goto done;
     }
-    if (ns(Test_vec_at(test4, 0))->a != 44) {
+    elem4 = ns(Test_vec_at(test4, 0));
+    if (ns(Test_a(elem4)) != 44) {
         printf("sliced struct vec has wrong element\n");
         goto done;
     }
@@ -1396,6 +1441,22 @@ int test_nested_buffer(flatcc_builder_t *B)
 
     return 0;
 }
+
+int verify_include(void *buffer)
+{
+    if (MyGame_OtherNameSpace_FromInclude_Foo != 17) {
+        printf("Unexpected enum value `Foo` from included schema\n");
+        return -1;
+    }
+
+    if (MyGame_OtherNameSpace_FromInclude_IncludeVal != 0) {
+        printf("Unexpected enum value `IncludeVal` from included schema\n");
+        return -1;
+    }
+
+    return 0;
+}
+
 
 int test_struct_buffer(flatcc_builder_t *B)
 {
@@ -1636,25 +1697,19 @@ int main(int argc, char *argv[])
     }
 #endif
 #if 1
-    if (test_typed_table_with_emptystruct(B)) {
-        printf("TEST FAILED\n");
-        return -1;
-    }
-#endif
-#if 1
     if (test_empty_monster(B)) {
         printf("TEST FAILED\n");
         return -1;
     }
 #endif
 #if 1
-    if (test_typed_empty_monster(B)) {
+    if (test_monster(B)) {
         printf("TEST FAILED\n");
         return -1;
     }
 #endif
 #if 1
-    if (test_monster(B)) {
+    if (test_monster_with_size(B)) {
         printf("TEST FAILED\n");
         return -1;
     }
@@ -1667,6 +1722,18 @@ int main(int argc, char *argv[])
 #endif
 #if 1
     if (test_struct_buffer(B)) {
+        printf("TEST FAILED\n");
+        return -1;
+    }
+#endif
+#if 1
+    if (test_typed_empty_monster(B)) {
+        printf("TEST FAILED\n");
+        return -1;
+    }
+#endif
+#if 1
+    if (test_typed_table_with_emptystruct(B)) {
         printf("TEST FAILED\n");
         return -1;
     }
@@ -1709,6 +1776,12 @@ int main(int argc, char *argv[])
 #endif
 #if 1
     if (test_nested_buffer(B)) {
+        printf("TEST FAILED\n");
+        return -1;
+    }
+#endif
+#if 1
+    if (verify_include(B)) {
         printf("TEST FAILED\n");
         return -1;
     }

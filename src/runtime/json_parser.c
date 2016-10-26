@@ -507,11 +507,13 @@ static const char *__flatcc_json_parser_number(flatcc_json_parser_t *ctx, const 
 
 const char *flatcc_json_parser_double(flatcc_json_parser_t *ctx, const char *buf, const char *end, double *v)
 {
+    int of;
+    
     *v = 0.0;
     buf = parse_double(buf, (int)(end - buf), v);
     if (buf == 0) {
-        if (isinf(*v)) {
-            if (*v >= 0.0) {
+        if ((of = parse_double_is_range_error(*v))) {
+            if (of > 0) {
                 flatcc_json_parser_set_error(ctx, buf, end, flatcc_json_parser_error_overflow);
             } else {
                 flatcc_json_parser_set_error(ctx, buf, end, flatcc_json_parser_error_underflow);
@@ -526,11 +528,13 @@ const char *flatcc_json_parser_double(flatcc_json_parser_t *ctx, const char *buf
 
 const char *flatcc_json_parser_float(flatcc_json_parser_t *ctx, const char *buf, const char *end, float *v)
 {
+    int of;
+
     *v = 0.0;
     buf = parse_float(buf, (int)(end - buf), v);
     if (buf == 0) {
-        if (isinf(*v)) {
-            if (*v >= 0.0) {
+        if ((of = parse_float_is_range_error(*v))) {
+            if (of > 0) {
                 flatcc_json_parser_set_error(ctx, buf, end, flatcc_json_parser_error_overflow);
             } else {
                 flatcc_json_parser_set_error(ctx, buf, end, flatcc_json_parser_error_underflow);

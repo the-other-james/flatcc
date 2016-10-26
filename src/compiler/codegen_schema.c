@@ -256,20 +256,24 @@ static void export_root_type(flatcc_builder_t *B, fb_symbol_t * root_type,
 static int export_schema(flatcc_builder_t *B, fb_options_t *opts, fb_schema_t *S)
 {
     catalog_t catalog;
-    reflection_Object_ref_t *object_map;
+    reflection_Object_ref_t *object_map = 0;
 
     if (build_catalog(&catalog, S, opts->bgen_qualify_names, &S->root_schema->scope_index)) {
         return -1;
     }
 
-    if (!(object_map = malloc(catalog.nobjects * sizeof(object_map[0])))) {
+    if (catalog.nobjects > 0 && !(object_map = malloc(catalog.nobjects * sizeof(object_map[0])))) {
         clear_catalog(&catalog);
         return -1;
     }
 
     /* Build the schema. */
 
-    reflection_Schema_start_as_root(B);
+    if (opts->bgen_length_prefix) {
+        reflection_Schema_start_as_root_with_size(B);
+    } else {
+        reflection_Schema_start_as_root(B);
+    }
     if (S->file_identifier.type == vt_string) {
         reflection_Schema_file_ident_create(B,
                 S->file_identifier.s.s, S->file_identifier.s.len);
@@ -331,7 +335,7 @@ static FILE *open_file(fb_options_t *opts, fb_schema_t *S)
     if (opts->gen_stdout) {
         return stdout;
     }
-    checkmem((path = fb_create_join_path(prefix, prefix_len, name, len, ext, 1)));
+    checkmem((path = fb_create_join_path_n(prefix, prefix_len, name, len, ext, 1)));
     fp = fopen(path, "wb");
     if (!fp) {
         fprintf(stderr, "error opening file for writing binary schema: %s\n", path);
@@ -419,15 +423,8 @@ int fb_codegen_bfbs_to_file(fb_options_t *opts, fb_schema_t *S)
         printf("failed to generate binary schema\n");
         goto done;
     }
-    if (opts->bgen_length_prefix) {
-        flatbuffers_uoffset_t length = __flatbuffers_uoffset_cast_to_pe((flatbuffers_uoffset_t)size);
-        if (sizeof(flatbuffers_uoffset_t) != fwrite(&length, 1, sizeof(length), fp)) {
-            fprintf(stderr, "cound not write binary schema to file\n");
-            goto done;
-        }
-    }
     if (size != fwrite(buffer, 1, size, fp)) {
-        fprintf(stderr, "cound not write binary schema to file\n");
+        fprintf(stderr, "could not write binary schema to file\n");
         goto done;
     }
     ret = 0;

@@ -4,24 +4,34 @@
 #cmake_minimum_required (VERSION 2.8.11)
 cmake_minimum_required (VERSION 2.8)
 
-project (FlatCC)
+project (FlatCC C)
 
 #
-# NOTE: when changing build options, clean the build using:
+# NOTE: when changing build options, clean the build using on of:
 #
 #   scripts/cleanall.sh
+#   scripts/test.sh
 #
-
-# Disable if cross compiling or if experiencing build issues with certain
-# custom CMake configurations - suspect dependency issue on flatcc tool
-# in custom build steps used by tests and samples.
-option(FLATCC_TEST "enable tests" ON)
 
 # Force use of portable shims such as providing `static_assert`, and
 # `stdaligh.h`. Otherwise this option is automatically enabled for some
 # known compiler configurations below.
 option (FLATCC_PORTABLE
     "include extra headers for compilers that do not support certain C11 features" OFF)
+
+# Only build the runtime library - mostly intended in combination with
+# FLATCC_INSTALL for cross compiling targets.
+option(FLATCC_RTONLY "enable build of runtime library only" OFF)
+
+# Use with or witout FLATCC_RTONLY to enable install targets.
+# Libraries are built statically by default, but can CMake's
+# cmake -DBUILD_SHARED_LIBS=on can override.
+option(FLATCC_INSTALL "enable build of runtime library only" OFF)
+
+# Disable build of tests and samples. Due to custom build step
+# dependency on flatcc tool, some custom build configurations may
+# experience issues, and this option can then help.
+option(FLATCC_TEST "enable tests" ON)
 
 # Affects the flatbuffer verify operation. Normally a verify should just
 # quickly reject invalid buffers but for troubleshooting, assertions can
@@ -61,10 +71,14 @@ option (FLATCC_FAST_DOUBLE
 option (FLATCC_ALLOW_WERROR "allow -Werror to be configured" ON)
 
 # Experimental setting - sometimes the code branches on a constant
-# epression in orer to select the best option for a given type size or
+# expression in order to select the best option for a given type size or
 # similar. Sometimes compilers don't like that. If this issue surfaces,
 # try using this option.
 option (FLATCC_IGNORE_CONST_COND "silence const condition warnings" OFF)
+
+if (FLATCC_RTONLY)
+    set(FLATCC_TEST off)
+endif()
 
 if (FLATCC_TEST)
     enable_testing()
@@ -98,20 +112,13 @@ endif()
 set (dist_dir "${PROJECT_SOURCE_DIR}")
 # set (dist_dir "${CMAKE_BINARY_DIR}")
 
-# The targets we copy to bin and lib directories, i.e. not tests.
-set(dist_targets
-    flatcc
-    flatccrt
-    flatcc_cli
-)
-
 # Note: for compiling generated C code, warnings of unused functions
 # and constants should be turned off - those are plentiful. They are
 # silenced for Clang, GCC and MSVC in generated headers.headers.
 
 if (CMAKE_C_COMPILER_ID MATCHES "Clang")
     # Clang or AppleClang
-
+    message(STATUS "Setting Clang compiler options")
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c11 -pedantic -Wall -Wextra")
     if (FLATCC_ALLOW_WERROR)
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror")
@@ -127,10 +134,12 @@ elseif (CMAKE_C_COMPILER_ID STREQUAL "GNU")
     execute_process(COMMAND ${CMAKE_C_COMPILER} -dumpversion
                     OUTPUT_VARIABLE GCC_VERSION)
     if (GCC_VERSION VERSION_LESS 4.7)
+        message(STATUS "Setting older GNU C compiler options with FLATCC_PORTABLE")
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra")
         # We need stdalign.h
         set(FLATCC_PORTABLE true)
     else()
+        message(STATUS "Setting GNU C compiler options with c11")
         # -std=c11 only available as of 4.7
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c11 -pedantic -Wall -Wextra")
         if (FLATCC_ALLOW_WERROR)
@@ -147,8 +156,10 @@ elseif (CMAKE_C_COMPILER_ID STREQUAL "GNU")
     #set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-type-limits")
 
 elseif (CMAKE_C_COMPILER_ID STREQUAL "Intel")
+    message(STATUS "Setting Intel C compiler options")
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c11 -Wall -Wextra")
 elseif (MSVC) # using STREQUAL here conflicts with string interpretation changes in CMake
+    message(STATUS "Setting MSVC C compiler options")
     # -DFLATCC_PORTABLE also required, but set earlier
     # -W3 is the highest warning level that is reasonable.
     # See include/flatcc/portable/pwarnings.h for disabled warnings.
@@ -160,8 +171,14 @@ elseif (MSVC) # using STREQUAL here conflicts with string interpretation changes
         set (FLATCC_NEED_C89_VAR_DECLS true)
     endif()
     set(FLATCC_PORTABLE true)
+ elseif (CMAKE_C_COMPILER_ID STREQUAL "XL")
+    # IBM's native XLC C compiler in extended C99 mode
+
+    message(STATUS "Setting IBM XL C compiler options")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -qlanglvl=extc99")
 else()
     # Best effort
+    message(STATUS "Best effort settings for compiler: ${CMAKE_C_COMPILER_ID}")
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall")
     set(FLATCC_PORTABLE true)
 endif()
@@ -186,13 +203,29 @@ if (CMAKE_BUILD_TYPE MATCHES "Debug")
     set(CMAKE_EXECUTABLE_SUFFIX "_d${CMAKE_EXECUTABLE_SUFFIX}")
 endif()
 
-add_subdirectory(src/compiler)
-add_subdirectory(src/runtime)
-add_subdirectory(src/cli)
 
+if (FLATCC_RTONLY)
+    # The targets we copy to bin and lib directories, i.e. not tests.
+    set(dist_targets
+        flatccrt
+    )
+    add_subdirectory(src/runtime)
+else()
+    # The targets we copy to bin and lib directories, i.e. not tests.
+    set(dist_targets
+        flatcc
+        flatccrt
+        flatcc_cli
+    )
+    add_subdirectory(src/runtime)
+    add_subdirectory(src/compiler)
+    add_subdirectory(src/cli)
+endif()
+
+# disabled by FLATCC_RTONLY
 if (FLATCC_TEST)
-add_subdirectory(test)
-add_subdirectory(samples)
+    add_subdirectory(test)
+    add_subdirectory(samples)
 endif()
 
 set_target_properties(${dist_targets}
@@ -201,3 +234,8 @@ set_target_properties(${dist_targets}
     LIBRARY_OUTPUT_DIRECTORY "${dist_dir}/lib"
     RUNTIME_OUTPUT_DIRECTORY "${dist_dir}/bin"
 )
+
+if (FLATCC_INSTALL)
+    install(DIRECTORY include/flatcc DESTINATION include)
+endif()
+

@@ -6,6 +6,8 @@
 #include "flatcc/support/readfile.h"
 #include "flatcc/support/hexdump.h"
 
+const char *filename = "monsterdata_test.mon";
+
 #undef ns
 #define ns(x) MyGame_Example_ ## x
 
@@ -151,19 +153,30 @@ int verify_monster(void *buffer)
     return 0;
 }
 
+
+/* We take arguments so test can run without copying sources. */
+#define usage \
+"wrong number of arguments:\n" \
+"usage: <program> [<input-filename>]\n"
+
 int main(int argc, char *argv[])
 {
     int ret;
     size_t size;
     void *buffer;
 
-    (void)argc;
-    (void)argv;
+    if (argc != 1 && argc != 2) {
+        fprintf(stderr, usage);
+        exit(1);
+    }
+    if (argc == 2) {
+        filename = argv[1];
+    }
 
-    buffer = readfile("monsterdata_test.mon", 1024, &size);
+    buffer = readfile(filename, 1024, &size);
 
     if (!buffer) {
-        fprintf(stderr, "could not read binary test file\n");
+        fprintf(stderr, "could not read binary test file: %s\n", filename);
         return -1;
     }
     hexdump("monsterdata_test.mon", buffer, size, stderr);
@@ -176,16 +189,30 @@ int main(int argc, char *argv[])
      * v1.1`.
      */
     if (flatcc_verify_ok != ns(Monster_verify_as_root_with_identifier(buffer, size, "MONS"))) {
+#if FLATBUFFERS_PROTOCOL_IS_BE
+        fprintf(stderr, "flatc golden reference buffer was correctly rejected by flatcc verificiation\n"
+                "because flatc is little endian and flatcc has been compiled for big endian protocol format\n");
+        ret = 0;
+        goto done;
+#else
         fprintf(stderr, "could not verify foreign monster file\n");
         ret = -1;
         goto done;
+#endif
     }
+
+#if FLATBUFFERS_PROTOCOL_IS_BE
+    fprintf(stderr, "flatcc compiled with big endian protocol failed to reject reference little endian buffer\n");
+    ret = -1;
+    goto done;
+#else
     if (flatcc_verify_ok != ns(Monster_verify_as_root(buffer, size))) {
         fprintf(stderr, "could not verify foreign monster file with default identifier\n");
         ret = -1;
         goto done;
     }
     ret = verify_monster(buffer);
+#endif
 
 done:
     free(buffer);

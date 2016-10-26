@@ -23,7 +23,7 @@
  * in switch statements, and encoded as a little endian C string for use
  * as a file identifier.
  */
-static void print_type_identifier(output_t *out, const char *name, uint32_t type_hash)
+static void print_type_identifier(fb_output_t *out, const char *name, uint32_t type_hash)
 {
     uint8_t buf[17];
     uint8_t *p;
@@ -61,7 +61,7 @@ static void print_type_identifier(output_t *out, const char *name, uint32_t type
 }
 
 /* Finds first occurrence of matching key when vector is sorted on the named field. */
-static void gen_find(output_t *out)
+static void gen_find(fb_output_t *out)
 {
     const char *nsc = out->nsc;
 
@@ -135,10 +135,9 @@ static void gen_find(output_t *out)
         nsc, nsc, nsc);
 }
 
-static void gen_helpers(output_t *out)
+static void gen_helpers(fb_output_t *out)
 {
     const char *nsc = out->nsc;
-    const char *nscup = out->nscup;
 
     fprintf(out->fp,
         /*
@@ -358,22 +357,33 @@ static void gen_helpers(output_t *out)
     fprintf(out->fp,
             "/* If fid is null, the function returns true without testing as buffer is not expected to have any id. */\n"
             "static inline int %shas_identifier(const void *buffer, const char *fid)\n"
-            "{ return fid == 0 || memcmp(fid, ((%suoffset_t *)buffer) + 1, %s_IDENTIFIER_SIZE) == 0; }\n\n"
-            "static inline int %shas_type_hash(const void *buffer, %sthash_t type_hash)\n"
-            /* TODO: read_from_pe should be `to_pe` and if isn't supported, fix it in accessors or similar. Ditto in verifier. */
-            "{ return type_hash == 0 || (__%sthash_read_from_pe((%suoffset_t *)buffer + 1) == type_hash); }\n\n"
+            "{ %sthash_t id, id2 = 0; if (fid == 0) { return 1; };\n"
+            "  strncpy((char *)&id2, fid, sizeof(id2));\n"
+            "  /* Identifier strings are always considered little endian. */\n"
+            "  id2 = __%sthash_cast_from_le(id2);\n"
+            "  id = __%sthash_read_from_pe(((%suoffset_t *)buffer) + 1);\n"
+            "  return id2 == 0 || id == id2; }\n"
+            "static inline int %shas_type_hash(const void *buffer, %sthash_t thash)\n"
+            "{ return thash == 0 || (__%sthash_read_from_pe((%suoffset_t *)buffer + 1) == thash); }\n\n"
             "static inline %sthash_t %sget_type_hash(const void *buffer)\n"
             "{ return __%sthash_read_from_pe((flatbuffers_uoffset_t *)buffer + 1); }\n\n"
             "#define %sverify_endian() %shas_identifier(\"\\x00\\x00\\x00\\x00\" \"1234\", \"1234\")\n",
-            nsc, nsc, nscup, nsc, nsc, nsc, nsc, nsc, nsc, nsc, nsc, nsc);
-
+            nsc, nsc, nsc, nsc, nsc, nsc, nsc, nsc, nsc, nsc, nsc, nsc, nsc, nsc);
+    fprintf(out->fp,
+            "static inline void *%sread_size_prefix(void *b, size_t *size_out)\n"
+            "{ if (size_out) { *size_out = (size_t)__%suoffset_read_from_pe(b); }\n"
+            "  return (uint8_t *)b + sizeof(%suoffset_t); }\n", nsc, nsc, nsc);
     fprintf(out->fp,
             "/* Null file identifier accepts anything, otherwise fid should be 4 characters. */\n"
             "#define __%sread_root(T, K, buffer, fid)\\\n"
             "  ((!buffer || !%shas_identifier(buffer, fid)) ? 0 :\\\n"
             "  ((T ## _ ## K ## t)(((uint8_t *)buffer) +\\\n"
+            "    __%suoffset_read_from_pe(buffer))))\n"
+            "#define __%sread_typed_root(T, K, buffer, thash)\\\n"
+            "  ((!buffer || !%shas_type_hash(buffer, thash)) ? 0 :\\\n"
+            "  ((T ## _ ## K ## t)(((uint8_t *)buffer) +\\\n"
             "    __%suoffset_read_from_pe(buffer))))\n",
-            nsc, nsc, nsc);
+            nsc, nsc, nsc, nsc, nsc, nsc);
     fprintf(out->fp,
             "#define __%snested_buffer_as_root(C, N, T, K)\\\n"
             "static inline T ## _ ## K ## t C ## _ ## N ## _as_root_with_identifier(C ## _ ## table_t t, const char *fid)\\\n"
@@ -388,21 +398,20 @@ static void gen_helpers(output_t *out)
             "#define __%sbuffer_as_root(N, K)\\\n"
             "static inline N ## _ ## K ## t N ## _as_root_with_identifier(const void *buffer, const char *fid)\\\n"
             "{ return __%sread_root(N, K, buffer, fid); }\\\n"
-            "static inline N ## _ ## K ## t N ## _as_root_with_type_hash(const void *buffer, flatbuffers_thash_t thash)\\\n"
-            "{ __flatbuffers_thash_write_to_pe(&thash, thash); return __%sread_root(N, K, buffer, thash ? (const char *)&thash : 0); }\\\n"
+            "static inline N ## _ ## K ## t N ## _as_root_with_type_hash(const void *buffer, %sthash_t thash)\\\n"
+            "{ return __%sread_typed_root(N, K, buffer, thash); }\\\n"
             "static inline N ## _ ## K ## t N ## _as_root(const void *buffer)\\\n"
             "{ const char *fid = N ## _identifier;\\\n"
             "  return __%sread_root(N, K, buffer, fid); }\\\n"
             "static inline N ## _ ## K ## t N ## _as_typed_root(const void *buffer)\\\n"
-            "{ const char *fid = N ## _type_identifier;\\\n"
-            "  return __%sread_root(N, K, buffer, fid); }\n"
+            "{ return __%sread_typed_root(N, K, buffer, N ## _type_hash); }\n"
             "#define __%sstruct_as_root(N) __%sbuffer_as_root(N, struct_)\n"
             "#define __%stable_as_root(N) __%sbuffer_as_root(N, table_)\n",
-            nsc, nsc, nsc, nsc, nsc, nsc, nsc, nsc, nsc);
+            nsc, nsc, nsc, nsc, nsc, nsc, nsc, nsc, nsc, nsc);
     fprintf(out->fp, "\n");
 }
 
-int fb_gen_common_c_header(output_t *out)
+int fb_gen_common_c_header(fb_output_t *out)
 {
     const char *nscup = out->nscup;
 
@@ -428,7 +437,7 @@ int fb_gen_common_c_header(output_t *out)
     return 0;
 }
 
-static void gen_pretext(output_t *out)
+static void gen_pretext(fb_output_t *out)
 {
     const char *nsc = out->nsc;
     const char *nscup = out->nscup;
@@ -502,13 +511,13 @@ static void gen_pretext(output_t *out)
     fprintf(out->fp, "\n");
 }
 
-static void gen_footer(output_t *out)
+static void gen_footer(fb_output_t *out)
 {
     gen_pragma_pop(out);
-    fprintf(out->fp, "#endif /* %s_H */\n", out->S->basenameup);
+    fprintf(out->fp, "#endif /* %s_READER_H */\n", out->S->basenameup);
 }
 
-static void gen_forward_decl(output_t *out, fb_compound_type_t *ct)
+static void gen_forward_decl(fb_output_t *out, fb_compound_type_t *ct)
 {
     fb_scoped_name_t snt;
     const char *nsc = out->nsc;
@@ -542,7 +551,7 @@ static void gen_forward_decl(output_t *out, fb_compound_type_t *ct)
     }
 }
 
-static inline void print_doc(output_t *out, const char *indent, fb_doc_t *doc)
+static inline void print_doc(fb_output_t *out, const char *indent, fb_doc_t *doc)
 {
     long ln = 0;
     int first = 1;
@@ -567,7 +576,7 @@ static inline void print_doc(output_t *out, const char *indent, fb_doc_t *doc)
     fprintf(out->fp, " */\n");
 }
 
-static void gen_struct(output_t *out, fb_compound_type_t *ct)
+static void gen_struct(fb_output_t *out, fb_compound_type_t *ct)
 {
     fb_member_t *member;
     fb_symbol_t *sym;
@@ -832,7 +841,7 @@ static void gen_struct(output_t *out, fb_compound_type_t *ct)
  * To produce a typesafe and portable result, we generate constants
  * instead.
  */
-static void gen_enum(output_t *out, fb_compound_type_t *ct)
+static void gen_enum(fb_output_t *out, fb_compound_type_t *ct)
 {
     fb_member_t *member;
     fb_symbol_t *sym;
@@ -929,7 +938,7 @@ static void gen_enum(output_t *out, fb_compound_type_t *ct)
     fprintf(out->fp, "\n");
 }
 
-static void gen_nested_root(output_t *out, fb_symbol_t *root_type, fb_symbol_t *container, fb_symbol_t *member)
+static void gen_nested_root(fb_output_t *out, fb_symbol_t *root_type, fb_symbol_t *container, fb_symbol_t *member)
 {
     const char *s;
     int n;
@@ -966,7 +975,7 @@ static void gen_nested_root(output_t *out, fb_symbol_t *root_type, fb_symbol_t *
     fprintf(out->fp, "__%snested_buffer_as_root(%s, %.*s, %s, %s)\n", nsc, snc.text, n, s, snt.text, kind);
 }
 
-static void gen_table(output_t *out, fb_compound_type_t *ct)
+static void gen_table(fb_output_t *out, fb_compound_type_t *ct)
 {
     fb_member_t *member;
     fb_symbol_t *sym;
@@ -1294,7 +1303,7 @@ static void gen_table(output_t *out, fb_compound_type_t *ct)
     }
 }
 
-int fb_gen_c_reader(output_t *out)
+int fb_gen_c_reader(fb_output_t *out)
 {
     fb_symbol_t *sym;
     fb_compound_type_t *ct;
@@ -1349,33 +1358,4 @@ int fb_gen_c_reader(output_t *out)
     fprintf(out->fp, "\n");
     gen_footer(out);
     return 0;
-}
-
-int fb_codegen_common_c(fb_options_t *opts)
-{
-    output_t output, *out;
-    size_t nsc_len;
-    int ret;
-
-    out = &output;
-    if (fb_init_output(out, opts)) {
-        return -1;
-    }
-    nsc_len = strlen(output.nsc) - 1;
-    ret = 0;
-    if (opts->cgen_common_reader) {
-        if (fb_open_output_file(out, out->nsc, nsc_len, "_common_reader.h")) {
-            return -1;
-        }
-        ret = fb_gen_common_c_header(out);
-        fb_close_output_file(out);
-    }
-    if (!ret && opts->cgen_common_builder) {
-        if (fb_open_output_file(out, out->nsc, nsc_len, "_common_builder.h")) {
-            return -1;
-        }
-        fb_gen_common_c_builder_header(out);
-        fb_close_output_file(out);
-    }
-    return ret;
 }

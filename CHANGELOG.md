@@ -1,6 +1,85 @@
 # Change Log
 
-## [Unreleased]
+## [0.4.0-pre]
+- Fix Windows detection in flatcc/support/elapsed.h used by benchmark.
+- Fix #8 surplus integer literal suffix in portable byteswap fallback.
+- Fix `pstatic_assert.h` missing fallback case.
+- Fix #9 return values from allocation can be zero without being an error.
+- Fix #11 by avoiding dependency on -lm (libmath) by providing a cleaner
+  over/underflow function in `include/flatcc/portable/pparsefp.h`.
+- Fix #12 infinite loop during flatbuffer build operations caused by
+  rare vtable dedupe hash table collision chains.
+- Added `include/flatcc/support/cdump.h` tool for encoding buffers in C.
+- JSON code generators no longer use non-portable PRIszu print
+  modifiers. Fixes issue on IBM XLC AIX.
+- Deprecated support for PRIsz? print modifiers in
+  `include/flatcc/portable/pinttypes.h`, they would require much more
+  work to be portable.
+- Fix and clean up `__STDC__` version checks in portable library.
+- Improve IBM XLC support in `pstdalign.h`.
+- Always include `pstdalign.h` in `flatcc_flatbuffers.h` because some
+  C11 compilers fail to provide `stdalign.h`.
+
+- BREAKING: Size prefixed buffers added requires a minor change
+  to the low-level flatcc builder library with a flag argument to create
+  and start buffer calls. This should not affect user code.
+
+
+Changes related to big endian support which do not affect little endian
+platforms with little endian wire format.
+
+- Support for big endian platforms, tested on IBM AIX Power PC.
+- Support for big endian encoded flatbuffers on both little and big
+  endian host platforms via `FLATBUFFERS_PROTOCOL_IS_LE/BE` in
+  `include/flatcc/flatcc_types.h`. Use `flatbuffers_is_native_pe()` to
+  see if the host native endian format matches the buffer protocol.
+  NOTE: file identifier at buffer offset 4 is always byteswapped.
+
+In more detail:
+
+- Fix vtable conversion to protocol endian format. This keeps cached
+  vtables entirely in native format and reduces hash collisions and only
+  converts when emitting the vtable to a buffer location.
+- Fix structs created with parameter list resulting in double endian
+  conversion back to native. 
+- Fix string swap used in sort due to endian sensitive diff math. 
+- Disable direct vector access test case when running on non-native
+  endian platform.
+- Update JSON printer test to handle `FLATBUFFERS_PROTOCOL_IS_BE`.
+- Fix emit test case. Incorrect assumption on acceptable null pointer
+  breaks with null pointer conversion. Also add binary check when
+  `FLATBUFFERS_PROTOCOL_IS_BE`.
+- Add binary test case to `json_test` when `FLATBUFFERS_PROTOCOL_IS_BE`.
+- Fix endian sensitive voffset access in json printer.
+- Update `flatc_compat` to reverse acceptance of 'golden' little endian
+  reference buffer when `FLATBUFFERS_PROTOCOL_IS_BE`.
+
+## [0.3.5a]
+- Fix regression introduced in 0.3.5 that caused double memory free on
+  input file buffer. See issue #7.
+
+## [0.3.5]
+
+- Allow flatcc cli options anywhere in the argument list.
+- Add --outfile option similar to --stdout, but to a file.
+- Add --depfile and --deptarget options for build dependencies.
+- Allow some test cases to accept arguments to avoid hardcoded paths.
+- Deprecate --schema-namespace=no option to disable namespace prefixes
+  in binary schema as Google flatbuffers now also includes namespaces
+  according to https://github.com/google/flatbuffers/pull/4025
+
+## [0.3.4]
+
+- Add `FLATCC_RTONLY` and `FLATCC_INSTALL` build options.
+- Fix issue4: when building a buffer and the first thing created is an
+  empty table, the builder wrongly assumed allocation failure. Affects
+  runtime library.
+- `scripts/setup.sh` now also links to debug libraries useful for bug
+  reporting.
+- Add ULL suffix to large printed constants in generated code which
+  would otherwise required --std=c99 to silence warnings.
+
+## [0.3.3]
 
 - BREAKING: `verify_as_root` no longer takes an identifier argument, use
   `verify_as_root_with_identifier`. `myschema_verifier.h` now
