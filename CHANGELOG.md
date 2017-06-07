@@ -1,6 +1,35 @@
 # Change Log
 
-## [0.4.0-pre]
+## [0.4.2-pre]
+- Fix minor memory leak in flatcc compiler.
+- Reduce collisions in builders vtable hash.
+- Fix missing `<mm_malloc.h>` for some GCC versions in `paligned_alloc.h` (#40)
+
+## [0.4.1]
+- Test for `posix_memalign` on GCC platforms and fix fallback
+  `aligned_alloc`.
+- Fix JSON parser handling of empty objects and tables.
+- Fix JSON parser - some fields would not be accepted as valid (#17).
+- Fix rare uncompilable doc comment in schema (#21).
+- Avoid crash on certain table parser error cases (#30).
+- Add support for scan similar to find in reader API, but for O(N)
+  unsorted search, or search by a secondary key, and in sub-ranges.
+- Optionally, and by default, allow scan by any field (#29), not just keys.
+- More compact code generation for reader (hiding scan methods).
+- Use __flatbuffers_utype_t for union type in reader instead of uint8_t.
+- Add unaligned write to punaligned for completeness.
+- Promote use of `flatcc_builder_finalize_aligned_buffer` in doc and
+  samples over `flatcc_builder_finalize_buffer`.
+- Add scope counter to pstatic_assert.h to avoid line number conflicts.
+- Fix compiler error/warning for negative enums in generated JSON parser (#35).
+- Fix potential compiler error/warnings for large enum/defaults in
+  generated reader/builder (#35).
+- Fix tab character in C++ style comments (#34)
+- Fix incorrect api usage in binary schema builder (#32)
+- Support hex constants in fbs schema (flatc also supports these now) (#33).
+
+
+## [0.4.0]
 - Fix Windows detection in flatcc/support/elapsed.h used by benchmark.
 - Fix #8 surplus integer literal suffix in portable byteswap fallback.
 - Fix `pstatic_assert.h` missing fallback case.
@@ -19,6 +48,15 @@
 - Improve IBM XLC support in `pstdalign.h`.
 - Always include `pstdalign.h` in `flatcc_flatbuffers.h` because some
   C11 compilers fail to provide `stdalign.h`.
+- Buffer verifier used to mostly, but not always, verify buffer
+  alignment relative to buffer start. With size prefixed buffers it is
+  necessary to verify relative to the allocated buffer, which is also
+  safer and more consistent, but adds requirements to aligned allocation.
+- `monster_test` and `flatc_compat` test now uses aligned alloc.
+- Add `aligned_alloc` and `aligned_free` to `pstdalign.h`.
+- `flatcc_builder_finalize_aligned_buffer` now requires `aligned_free`
+  to be fully portable and no longer use unaligned malloc as fallback,
+  but still works with `free` on most platforms (not Windows).
 
 - BREAKING: Size prefixed buffers added requires a minor change
   to the low-level flatcc builder library with a flag argument to create

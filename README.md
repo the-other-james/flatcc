@@ -89,7 +89,7 @@ set up a new temporary project using the `scripts/setup.sh` script.
 
 ## Status
 
-Main features supported as of 0.4.0
+Main features supported as of 0.4.1
 
 - generated FlatBuffers reader and builder headers for C
 - generated FlatBuffers verifier headers for C
@@ -103,10 +103,8 @@ Main features supported as of 0.4.0
 - thorough test cases
 - monster sample project
 - fast build times
-
-New in 0.4.0:
-- support for big endian platforms.
-- support for big endian encoded flatbuffers on both le and be platforms.
+- support for big endian platforms (as of 0.4.0)
+- support for big endian encoded flatbuffers on both le and be platforms. Enabled on `be` branch.
 - size prefixed buffers - see also `doc/builder.md`
 
 Supported platforms:
@@ -125,15 +123,9 @@ it may require some work in the build configuration and possibly
 updates to the portable library. The above is simply what has been
 tested and configured.
 
-Use versions from 0.3.0 and up as there has been some minor breaking
-[interface changes](https://github.com/dvidelabs/flatcc/blob/master/CHANGELOG.md#030).
-Version 0.3.3 has a minor breaking change where the `verify_as_root` call
-must be renamed to `verify_as_root_with_identifier`, or drop the identifier
-argument.
-
 The portability layer has some features that are generally important for
 things like endian handling, and others to provide compatibility for
-non-C11 compliant compilers. Together this should support most C
+optional and missing C11 features. Together this should support most C
 compilers around, but relies on community feedback for maturity.
 
 The necessary size of the runtime include files can be reduced
@@ -227,14 +219,12 @@ binary.
 
 ## Generated Files
 
-In earlier releases it was attempted to generate all code needed for
-read-only buffer access. Now a library of include files is always
-required (`include/flatcc`) because the original approach lead to
-excessive code duplication. The generated code for building flatbuffers,
-and for parsing and printing flatbuffers, all need to link with the
-runtime library `libflatccrt.a`. The verifier and builder headers depend
-on the reader header. The generated reader only depends on library
-header files.
+The generated code for building flatbuffers,
+and for parsing and printing flatbuffers, all need access to
+`include/flatcc`. The reader does no rely on any library but all other
+generated files rely on the `libflatccrt.a` runtime library. Note that
+`libflatcc.a` is only required if the flatcc compiler itself is required
+as a library.
 
 The reader and builder rely on generated common reader and builder
 header files. These common file makes it possible to change the global
@@ -244,12 +234,9 @@ abstractions and eventually have a set of predefined files for types
 beyond the standard 32-bit unsigned offset (`uoffset_t`). The runtime
 library is specific to one set of type definitions.
 
-Reader code is reasonably straight forward and the generated code is
-more readable than the builder code because the generated functions
-headers are not buried in macros. Refer to `monster_test.c` and the
-generated files for detailed guidance on use. The monster schema used in
-this project is a slight adaptation to the original to test some
-additional edge cases.
+Refer to `monster_test.c` and the generated files for detailed guidance
+on use. The monster schema used in this project is a slight adaptation
+to the original to test some additional edge cases.
 
 For building flatbuffers a separate builder header file is generated per
 schema. It requires a `flatbuffers_common_builder.h` file also generated
@@ -522,7 +509,9 @@ as soon as they complete rather than merging all pages into a single
 buffer using `flatcc_builder_finalize_buffer`, or the simplistic
 `flatcc_builder_get_direct_buffer` which returns null if the buffer is
 too large. See also documentation comments in `flatcc_builder.h` and
-`flatcc_emitter.h`.
+`flatcc_emitter.h`. See also `flatc_builder_finalize_aligned_buffer` in
+`builder.h` and `builder.md` when malloc aligned buffers are
+insufficent.
 
 
     #include "monster_test_builder.h"
@@ -632,15 +621,24 @@ construct overlapping datastructures such that in-place updates may
 cause subsequent invalid buffers. Therefore an untrusted buffer should
 never be updated in-place without first rewriting it to a new buffer.
 
-Note: prior to version 0.2.0, the verifier would fail on 0 and report
-success on non-zero value. As of 0.2.0, success is indicated by 0, and
-non-zero yields an error code that can be translated into a string.
-
 The CMake build system has build option to enable assertions in the
 verifier. This will break debug builds and not usually what is desired,
-but it can be very useful when debugging why a buffer is invalid.
+but it can be very useful when debugging why a buffer is invalid. Traces
+can also be enabled so table offset and field id can be reported.
 
 See also `include/flatcc/flatcc_verifier.h`.
+
+When verifying buffers returned directly from the builder, it may be
+necessary to use the `flatcc_builder_finalize_aligned_buffer` to ensure
+proper alignment and use `aligned_free` to free the buffer, see also
+`doc/builder.md`. Buffers may also be copied into aligned memory via
+mmap or using the portable layers `paligned_alloc.h` feature which is
+available when including generated headers.
+`test/flatc_compat/flatc_compat.c` is an example of how this can be
+done. For the majority of use cases, standard allocation would be
+sufficient, but for example standard 32-bit Windows only allocates on an
+8-byte boundary and can break the monster schema because it has 16-byte
+aligned fields.
 
 
 ## File and Type Identifiers
@@ -840,8 +838,7 @@ quoted in order to be compatible with Googles flatc tool for Flatbuffers
 
     color: "Green Red"
 
-The following is also accepted in flatcc 0.2.0, but subsequent releases
-only permits it if explicitly enabled at compile time.
+The following is only permitted if explicitly enabled at compile time.
 
     color: Green Red
 
@@ -1112,7 +1109,9 @@ runtime library with flatbuffers encoded in big endian format regardless
 of the host platforms endianness. Longer term this should probably be
 placed in a separate library with separate name prefixes or suffixes,
 but it is usable as is. Redefine `FLATBUFFERS_PROTOCOL_IS_LE/BE`
-accordingly in `include/flatcc/flatcc_types.h`.
+accordingly in `include/flatcc/flatcc_types.h`. This is already done in
+the `be` branch. This branch is not maintained but the master branch can
+be merged into it as needed.
 
 Note that standard flatbuffers are always encoded in little endian but
 in situations where all buffer producers and consumers are big endian,
@@ -1192,7 +1191,7 @@ correctly.  By not checking error codes, this logic also optimizes out
 for better performance.
 
 
-## Sorting and Finding
+## Searching and Sorting
 
 The builder API does not support sorting due to the complexity of
 customizable emitters, but the reader API does support sorting so a
@@ -1204,12 +1203,34 @@ external memory or recursion. Due to the lack of external memory, the
 sort is not stable. The corresponding find operation returns the lowest
 index of any matching key, or `flatbuffers_not_found`.
 
-When configured in `config.h`, the `flatcc` compiler allows multiple
-keyed fields unlike Googles `flatc` compiler. This works transparently
-by providing `<table_name>_vec_sort_by_<field_name>` and
-`<table_name>_vec_find_by_<field_name>` methods for all keyed fields. The
-first field maps to `<table_name>_vec_sort` and `<table_name>_vec_find`.
-Obviously the chosen find method must match the chosen sort method.
+When configured in `config.h` (the default), the `flatcc` compiler
+allows multiple keyed fields unlike Googles `flatc` compiler. This works
+transparently by providing `<table_name>_vec_sort_by_<field_name>` and
+`<table_name>_vec_find_by_<field_name>` methods for all keyed fields.
+The first field maps to `<table_name>_vec_sort` and
+`<table_name>_vec_find`. Obviously the chosen find method must match
+the chosen sort method. The find operation is O(logN).
+
+As of v0.4.1 `<table_name>_vec_scan_by_<field_name>` and the default
+`<table_name>_vec_scan` are also provided, similar to `find`, but as a
+linear search that does not require the vector to be sorted. This is
+especially useful for searching by a secondary key (multiple keys is a
+non-standard flatcc feature). `_scan_ex` searches a sub-range [a, b)
+where b is an exclusive index. `b = flatbuffers_end == flatbuffers_not_found
+== (size_t)-1` may be used when searching from a position to the end,
+and `b` can also conveniently be the result of a previous search.
+
+`rscan` searches in the opposite direction starting from the last
+element. `rscan_ex` accepts the same range arguments as `scan_ex`. If
+`a >= b or a >= len` the range is considered empty and
+`flatbuffers_not_found` is returned. `[r]scan[_ex]_n[_by_name]` is for
+length terminated string keys. See `monster_test.c` for examples.
+
+Note that `find` requires `key` attribute in the schema. `scan` is also
+available on keyed fields. By default `flatcc` will also enable scan by
+any other field but this can be disabled by a compile time flag.
+
+Basic types such as `uint8_vec` also have search operations.
 
 See also `doc/builder.md` and `test/monster_test/monster_test.c`.
 

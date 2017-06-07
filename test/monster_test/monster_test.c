@@ -5,6 +5,7 @@
 
 #include "flatcc/support/hexdump.h"
 #include "flatcc/support/elapsed.h"
+#include "../../config/config.h"
 
 /*
  * Convenience macro to deal with long namespace names,
@@ -90,6 +91,39 @@ int verify_empty_monster(void *buffer)
     return 0;
 }
 
+int test_enums(flatcc_builder_t *B)
+{
+    if (ns(neg_enum_neg1) != -12) {
+        printf("neg_enum_neg1 should be -12, was %d\n", ns(neg_enum_neg1));
+        return -1;
+    }
+    if (ns(neg_enum_neg2) != -11) {
+        printf("neg_enum_neg1 should be -11, was %d\n", ns(neg_enum_neg2));
+        return -1;
+    }
+    if (ns(int_enum_int1) != 2) {
+        printf("int_enum_int1 should be 2\n");
+        return -1;
+    }
+    if (ns(int_enum_int2) != 42) {
+        printf("int_enum_int2 should be 42\n");
+        return -1;
+    }
+    if (ns(hex_enum_hexneg) != -2) {
+        printf("enum hexneg should be -2\n");
+        return -1;
+    }
+    if (ns(hex_enum_hex1) != 3) {
+        printf("hex_enum_hex1 should be 3\n");
+        return -1;
+    }
+    if (ns(hex_enum_hex2) != INT32_C(0x7eafbeaf)) {
+        printf("hex_enum_hex2 should be 0x7eafbeaf\n");
+        return -1;
+    }
+    return 0;
+}
+
 int test_empty_monster(flatcc_builder_t *B)
 {
     int ret;
@@ -106,7 +140,7 @@ int test_empty_monster(flatcc_builder_t *B)
     root = ns(Monster_end(B));
     flatbuffers_buffer_end(B, root);
 
-    buffer = flatcc_builder_finalize_buffer(B, &size);
+    buffer = flatcc_builder_finalize_aligned_buffer(B, &size);
 
     hexdump("empty monster table", buffer, size, stderr);
     if ((ret = verify_empty_monster(buffer))) {
@@ -131,7 +165,7 @@ int test_empty_monster(flatcc_builder_t *B)
     }
 
 done:
-    free(buffer);
+    aligned_free(buffer);
     return ret;
 }
 
@@ -153,7 +187,7 @@ int test_typed_empty_monster(flatcc_builder_t *B)
     flatbuffers_buffer_end(B, root);
 
 
-    buffer = flatcc_builder_finalize_buffer(B, &size);
+    buffer = flatcc_builder_finalize_aligned_buffer(B, &size);
 
     hexdump("empty typed monster table", buffer, size, stderr);
 
@@ -210,7 +244,7 @@ int test_typed_empty_monster(flatcc_builder_t *B)
     ret = 0;
 
 done:
-    free(buffer);
+    aligned_free(buffer);
     return ret;
 }
 
@@ -260,7 +294,7 @@ int test_table_with_emptystruct(flatcc_builder_t *B)
 
     ns(with_emptystruct_create_as_root)(B, empty);
 
-    buffer = flatcc_builder_finalize_buffer(B, &size);
+    buffer = flatcc_builder_finalize_aligned_buffer(B, &size);
 
     /*
      * We should expect an empty table with a vtable holding
@@ -271,7 +305,7 @@ int test_table_with_emptystruct(flatcc_builder_t *B)
      */
     hexdump("table with empty struct", buffer, size, stderr);
     ret = verify_table_with_emptystruct(buffer);
-    free(buffer);
+    aligned_free(buffer);
 
     return ret;
 }
@@ -881,7 +915,7 @@ int test_monster(flatcc_builder_t *B)
 
     gen_monster(B, 0);
 
-    buffer = flatcc_builder_finalize_buffer(B, &size);
+    buffer = flatcc_builder_finalize_aligned_buffer(B, &size);
     hexdump("monster table", buffer, size, stderr);
     if ((ret = ns(Monster_verify_as_root(buffer, size)))) {
         printf("Monster buffer failed to verify, got: %s\n", flatcc_verify_error_string(ret));
@@ -889,7 +923,7 @@ int test_monster(flatcc_builder_t *B)
     }
     ret = verify_monster(buffer);
 
-    free(buffer);
+    aligned_free(buffer);
     return ret;
 }
 
@@ -901,8 +935,13 @@ int test_monster_with_size(flatcc_builder_t *B)
 
     gen_monster(B, 1);
 
-    frame = flatcc_builder_finalize_buffer(B, &size);
+    frame = flatcc_builder_finalize_aligned_buffer(B, &size);
     hexdump("monster table with size", frame, size, stderr);
+    if (((size_t)frame & 15)) {
+        printf("Platform did not provide 16 byte aligned allocation and needs special attention.");
+        printf("buffer address: %x\n", (flatbuffers_uoffset_t)(size_t)frame);
+        return -1;
+    }
 
     buffer = flatbuffers_read_size_prefix(frame, &size2);
     esize = size - sizeof(flatbuffers_uoffset_t);
@@ -916,7 +955,8 @@ int test_monster_with_size(flatcc_builder_t *B)
     }
     ret = verify_monster(buffer);
 
-    free(frame);
+    /* Extension in `paligned_alloc.h` */
+    aligned_free(frame);
     return ret;
 }
 
@@ -996,7 +1036,7 @@ int test_sort_find(flatcc_builder_t *B)
 
     ns(Monster_end_as_root(B));
 
-    buffer = flatcc_builder_finalize_buffer(B, &size);
+    buffer = flatcc_builder_finalize_aligned_buffer(B, &size);
 
     hexdump("unsorted monster buffer", buffer, size, stderr);
     mon = ns(Monster_as_root(buffer));
@@ -1092,7 +1132,293 @@ int test_sort_find(flatcc_builder_t *B)
     ret = 0;
 
 done:
-    free(buffer);
+    aligned_free(buffer);
+    return ret;
+}
+
+static size_t count_monsters(ns(Monster_vec_t) monsters, const char *name)
+{
+    size_t i;
+    size_t count = 0;
+
+    for (i = ns(Monster_vec_scan)(monsters, name);
+         i != nsc(not_found);
+         i = ns(Monster_vec_scan_ex)(monsters, i + 1, nsc(end), name)) {
+        ++count;
+    }
+
+    return count;
+}
+
+int test_scan(flatcc_builder_t *B)
+{
+    size_t pos;
+    ns(Monster_table_t) mon;
+    ns(Monster_vec_t) monsters;
+    nsc(uint8_vec_t) inv;
+    nsc(string_vec_t) strings;
+    void *buffer;
+    size_t size;
+    uint8_t invdata[] = { 6, 7, 1, 3, 4, 3, 2 };
+    int ret = -1;
+
+    flatcc_builder_reset(B);
+    ns(Monster_start_as_root(B));
+    ns(Monster_name_create_str(B, "MyMonster"));
+    ns(Monster_inventory_create(B, invdata, c_vec_len(invdata)));
+
+    ns(Monster_testarrayofstring_start(B));
+    ns(Monster_testarrayofstring_end(B));
+
+    ns(Monster_testarrayoftables_start(B));
+
+    ns(Monster_testarrayoftables_push_start(B));
+    ns(Monster_name_create_str(B, "TwoFace"));
+    ns(Monster_testarrayoftables_push_end(B));
+
+    ns(Monster_testarrayoftables_push_start(B));
+    ns(Monster_name_create_str(B, "Joker"));
+    ns(Monster_testarrayoftables_push_end(B));
+
+    ns(Monster_testarrayoftables_push_start(B));
+    ns(Monster_name_create_str(B, "Gulliver"));
+    ns(Monster_testarrayoftables_push_end(B));
+
+    ns(Monster_testarrayoftables_push_start(B));
+    ns(Monster_name_create_str(B, "Alice"));
+    ns(Monster_testarrayoftables_push_end(B));
+
+    ns(Monster_testarrayoftables_push_start(B));
+    ns(Monster_name_create_str(B, "Gulliver"));
+    ns(Monster_testarrayoftables_push_end(B));
+
+    ns(Monster_testarrayoftables_end(B));
+
+    ns(Monster_end_as_root(B));
+
+    buffer = flatcc_builder_finalize_aligned_buffer(B, &size);
+    mon = ns(Monster_as_root(buffer));
+    monsters = ns(Monster_testarrayoftables(mon));
+    assert(monsters);
+    inv = ns(Monster_inventory(mon));
+    assert(inv);
+    strings = ns(Monster_testarrayofstring(mon));
+    assert(strings);
+
+    if (1 != ns(Monster_vec_scan(monsters, "Joker"))) {
+        printf("scan_by did not find the Joker\n");
+        goto done;
+    }
+    if (1 != ns(Monster_vec_rscan(monsters, "Joker"))) {
+        printf("rscan_by did not find the Joker\n");
+        goto done;
+    }
+    if (1 != ns(Monster_vec_scan_n(monsters, "Joker3", 5))) {
+        printf("scan_by did not find the Joker with n\n");
+        goto done;
+    }
+    if (1 != ns(Monster_vec_rscan_n(monsters, "Joker3", 5))) {
+        printf("scan_by did not find the Joker with n\n");
+        goto done;
+    }
+    if (nsc(not_found) != ns(Monster_vec_scan_ex(monsters, 2, nsc(end), "Joker"))) {
+        printf("scan_from found Joker past first occurence\n");
+        goto done;
+    }
+    if (nsc(not_found) != ns(Monster_vec_scan(monsters, "Jingle"))) {
+        printf("not found not working\n");
+        goto done;
+    }
+    if (0 != ns(Monster_vec_scan(monsters, "TwoFace"))) {
+        printf("TwoFace not found\n");
+        goto done;
+    }
+    if (2 != ns(Monster_vec_scan_by_name(monsters, "Gulliver"))) {
+        printf("Gulliver not found\n");
+        goto done;
+    }
+    if (4 != ns(Monster_vec_rscan_by_name(monsters, "Gulliver"))) {
+        printf("Gulliver not found\n");
+        goto done;
+    }
+    if (4 != ns(Monster_vec_rscan_n_by_name(monsters, "Gulliver42", 8))) {
+        printf("Gulliver not found with n\n");
+        goto done;
+    }
+    if (2 != ns(Monster_vec_rscan_ex_n_by_name(monsters, 1, 3, "Gulliver42", 8))) {
+        printf("Gulliver not found with n\n");
+        goto done;
+    }
+    if (2 != ns(Monster_vec_scan_ex_by_name(monsters, 2, nsc(end), "Gulliver"))) {
+        printf("Gulliver not found starting from Gulliver\n");
+        goto done;
+    }
+    if (2 != ns(Monster_vec_scan_ex_n_by_name(monsters, 2, nsc(end), "Gulliver42", 8))) {
+        printf("Gulliver not found starting from Gulliver\n");
+        goto done;
+    }
+    if (4 != ns(Monster_vec_scan_ex_by_name(monsters, 3, nsc(end), "Gulliver"))) {
+        printf("Another Gulliver not found\n");
+        goto done;
+    }
+
+    if (nsc(not_found) != ns(Monster_vec_scan_ex(monsters, 1, 3, "Jingle"))) {
+        printf("not found in subrange not working\n");
+        goto done;
+    }
+    if (nsc(not_found) != ns(Monster_vec_scan_ex(monsters, 1, 3, "TwoFace"))) {
+        printf("subrange doesn't limit low bound\n");
+        goto done;
+    }
+    if (1 != ns(Monster_vec_scan_ex(monsters, 1, 3, "Joker"))) {
+        printf("scan in subrange did not find Joker\n");
+        goto done;
+    }
+    if (2 != ns(Monster_vec_scan_ex_by_name(monsters, 1, 3, "Gulliver"))) {
+        printf("scan in subrange did not find Gulliver\n");
+        goto done;
+    }
+    if (nsc(not_found) != ns(Monster_vec_scan_ex_by_name(monsters, 1, 3, "Alice"))) {
+        printf("subrange doesn't limit upper bound in scan\n");
+        goto done;
+    }
+
+    if (nsc(not_found) != ns(Monster_vec_rscan_ex(monsters, 1, 3, "Jingle"))) {
+        printf("not found in subrange not working with rscan\n");
+        goto done;
+    }
+    if (nsc(not_found) != ns(Monster_vec_rscan_ex(monsters, 1, 3, "TwoFace"))) {
+        printf("subrange doesn't limit lower bound in rscan\n");
+        goto done;
+    }
+    if (1 != ns(Monster_vec_rscan_ex(monsters, 1, 3, "Joker"))) {
+        printf("rscan in subrange did not find Joker\n");
+        goto done;
+    }
+    if (2 != ns(Monster_vec_rscan_ex_by_name(monsters, 1, 3, "Gulliver"))) {
+        printf("rscan in subrange did not find Gulliver\n");
+        goto done;
+    }
+    if (nsc(not_found) != ns(Monster_vec_rscan_ex_by_name(monsters, 1, 3, "Alice"))) {
+        printf("subrange doesn't limit upper bound in rscan\n");
+        goto done;
+    }
+
+    if (nsc(not_found) != ns(Monster_vec_scan_ex(monsters, 0, 0, "TwoFace"))) {
+        printf("TwoFace is found in empty range\n");
+        goto done;
+    }
+    if (nsc(not_found) != ns(Monster_vec_scan_ex(monsters, 0, 0, "Joker"))) {
+        printf("Joker is found in empty range\n");
+        goto done;
+    }
+    if (nsc(not_found) != ns(Monster_vec_scan_ex(monsters, 1, 1, "Joker"))) {
+        printf("Joker is found in another empty range\n");
+        goto done;
+    }
+    if (nsc(not_found) != ns(Monster_vec_scan_ex(monsters, ns(Monster_vec_len(monsters)), nsc(end), "TwoFace"))) {
+        printf("TwoFace is found in empty range in the end\n");
+        goto done;
+    }
+
+    if (nsc(not_found) != ns(Monster_vec_rscan_ex(monsters, 0, 0, "TwoFace"))) {
+        printf("TwoFace is found in empty range\n");
+        goto done;
+    }
+    if (nsc(not_found) != ns(Monster_vec_rscan_ex(monsters, 0, 0, "Joker"))) {
+        printf("Joker is found in empty range\n");
+        goto done;
+    }
+    if (nsc(not_found) != ns(Monster_vec_rscan_ex(monsters, 1, 1, "Joker"))) {
+        printf("Joker is found in another empty range\n");
+        goto done;
+    }
+    if (nsc(not_found) != ns(Monster_vec_rscan_ex(monsters, ns(Monster_vec_len(monsters)), nsc(end), "TwoFace"))) {
+        printf("TwoFace is found in empty range in the end\n");
+        goto done;
+    }
+
+    if (1 != count_monsters(monsters, "Joker")) {
+        printf("number of Jokers is not 1\n");
+        goto done;
+    }
+    if (0 != count_monsters(monsters, "Jingle")) {
+        printf("number of Jingles is not 0\n");
+        goto done;
+    }
+    if (1 != count_monsters(monsters, "TwoFace")) {
+        printf("number of TwoFace is not 1\n");
+        goto done;
+    }
+    if (2 != count_monsters(monsters, "Gulliver")) {
+        printf("number of Gullivers is not 2\n");
+        goto done;
+    }
+
+
+    if (0 != (pos = nsc(uint8_vec_scan(inv, 6)))) {
+        printf("scan not working on first item of inventory\n");
+        goto done;
+    }
+    if (2 != (pos = nsc(uint8_vec_scan(inv, 1)))) {
+        printf("scan not working on middle item of inventory\n");
+        goto done;
+    }
+    if (nsc(not_found) != (pos = nsc(uint8_vec_scan_ex(inv, 3, nsc(end), 1)))) {
+        printf("scan_ex(item+1) not working on middle item of inventory\n");
+        goto done;
+    }
+    if (nsc(not_found) != (pos = nsc(uint8_vec_scan(inv, 5)))) {
+        printf("scan not working for repeating item of inventory\n");
+        goto done;
+    }
+    if (6 != (pos = nsc(uint8_vec_scan(inv, 2)))) {
+        printf("scan not working on last item of inventory\n");
+        goto done;
+    }
+    if (3 != (pos = nsc(uint8_vec_scan(inv, 3)))) {
+        printf("scan not working for repeating item of inventory\n");
+        goto done;
+    }
+    if (3 != (pos = nsc(uint8_vec_scan_ex(inv, 3, nsc(end), 3)))) {
+        printf("scan_ex(item) not working for repeating item of inventory\n");
+        goto done;
+    }
+    if (5 != (pos = nsc(uint8_vec_scan_ex(inv, 4, nsc(end), 3)))) {
+        printf("scan_ex(item+1) not working for repeating item of inventory\n");
+        goto done;
+    }
+    if (5 != (pos = nsc(uint8_vec_rscan(inv, 3)))) {
+        printf("rscan not working for repeating item of inventory\n");
+        goto done;
+    }
+    if (3 != (pos = nsc(uint8_vec_rscan_ex(inv, 1, 4, 3)))) {
+        printf("rscan_ex not working for repeating item of inventory\n");
+        goto done;
+    }
+
+    /* Test that all scan functions are generated for string arrays */
+    nsc(string_vec_scan(strings, "Hello"));
+    nsc(string_vec_scan_ex(strings, 0, nsc(end), "Hello"));
+    nsc(string_vec_scan_n(strings, "Hello", 4));
+    nsc(string_vec_scan_ex_n(strings, 0, nsc(end), "Hello", 4));
+    nsc(string_vec_rscan(strings, "Hello"));
+    nsc(string_vec_rscan_ex(strings, 0, nsc(end), "Hello"));
+    nsc(string_vec_rscan_n(strings, "Hello", 4));
+    nsc(string_vec_rscan_ex_n(strings, 0, nsc(end), "Hello", 4));
+
+#if FLATCC_ALLOW_SCAN_FOR_ALL_FIELDS
+    /* Check for presence of scan for non-key fields */
+    ns(Monster_vec_scan_by_hp(monsters, 13));
+    ns(Monster_vec_scan_ex_by_hp(monsters, 1, nsc(end), 42));
+    ns(Monster_vec_rscan_by_hp(monsters, 1));
+    ns(Monster_vec_rscan_ex_by_hp(monsters, 0, 2, 42));
+#endif
+
+    ret = 0;
+
+done:
+    aligned_free(buffer);
     return ret;
 }
 
@@ -1163,7 +1489,7 @@ int test_clone_slice(flatcc_builder_t *B)
     ns(Monster_pos_start(B))->x = -42.3f;
 
     ns(Monster_end_as_root(B));
-    buffer = flatcc_builder_finalize_buffer(B, &size);
+    buffer = flatcc_builder_finalize_aligned_buffer(B, &size);
     hexdump("clone slice source buffer", buffer, size, stderr);
 
     mon = ns(Monster_as_root(buffer));
@@ -1299,7 +1625,7 @@ int test_clone_slice(flatcc_builder_t *B)
     ret = 0;
 
 done:
-    free(buffer);
+    aligned_free(buffer);
     return ret;
 }
 
@@ -1319,7 +1645,7 @@ int test_create_add_field(flatcc_builder_t *B)
     ns(Monster_enemy_add(B, 0));
     ns(Monster_end_as_root(B));
 
-    buffer = flatcc_builder_finalize_buffer(B, &size);
+    buffer = flatcc_builder_finalize_aligned_buffer(B, &size);
     mon = ns(Monster_as_root(buffer));
     if (ns(Monster_enemy_is_present(mon))) {
         printf("enemy should not be present when adding null\n");
@@ -1332,7 +1658,7 @@ int test_create_add_field(flatcc_builder_t *B)
     }
     ret = 0;
 done:
-    free(buffer);
+    aligned_free(buffer);
     return ret;
 }
 
@@ -1697,6 +2023,12 @@ int main(int argc, char *argv[])
     }
 #endif
 #if 1
+    if (test_enums(B)) {
+        printf("TEST FAILED\n");
+        return -1;
+    }
+#endif
+#if 1
     if (test_empty_monster(B)) {
         printf("TEST FAILED\n");
         return -1;
@@ -1770,6 +2102,12 @@ int main(int argc, char *argv[])
 #endif
 #if 1
     if (test_sort_find(B)) {
+        printf("TEST FAILED\n");
+        return -1;
+    }
+#endif
+#if 1
+    if (test_scan(B)) {
         printf("TEST FAILED\n");
         return -1;
     }

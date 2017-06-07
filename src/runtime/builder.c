@@ -329,7 +329,7 @@ static int alloc_ht(flatcc_builder_t *B)
 {
     iovec_t *buf = B->buffers + flatcc_builder_alloc_ht;
 
-    size_t size;
+    size_t size, k;
     /* Allocate null entry so we can check for return errors. */
     assert(B->vd_end == 0);
     if (!reserve_buffer(B, flatcc_builder_alloc_vd, B->vd_end, sizeof(vtable_descriptor_t), 0)) {
@@ -343,7 +343,10 @@ static int alloc_ht(flatcc_builder_t *B)
     while (size * 2 <= buf->iov_len) {
         size *= 2;
     }
-    B->ht_mask = size / field_size - 1;
+    size /= field_size;
+    for (k = 0; (UINT32_C(1) << k) < size; ++k) {
+    }
+    B->ht_width = k;
     return 0;
 }
 
@@ -351,20 +354,21 @@ static inline uoffset_t *lookup_ht(flatcc_builder_t *B, uint32_t hash)
 {
     uoffset_t *T;
 
-    if (B->ht_mask == 0) {
+    if (B->ht_width == 0) {
         if (alloc_ht(B)) {
             return 0;
         }
     }
     T = B->buffers[flatcc_builder_alloc_ht].iov_base;
-    return &T[hash & B->ht_mask];
+
+    return &T[FLATCC_BUILDER_BUCKET_VT_HASH(hash, B->ht_width)];
 }
 
 void flatcc_builder_flush_vtable_cache(flatcc_builder_t *B)
 {
     iovec_t *buf = B->buffers + flatcc_builder_alloc_ht;
 
-    if (B->ht_mask == 0) {
+    if (B->ht_width == 0) {
         return;
     }
     memset(buf->iov_base, 0, buf->iov_len);
@@ -1682,6 +1686,10 @@ done:
     return buffer;
 }
 
+#ifndef aligned_free
+#define aligned_free free
+#endif
+
 void *flatcc_builder_finalize_aligned_buffer(flatcc_builder_t *B, size_t *size_out)
 {
     void * buffer;
@@ -1695,18 +1703,14 @@ void *flatcc_builder_finalize_aligned_buffer(flatcc_builder_t *B, size_t *size_o
     }
     align = flatcc_builder_get_buffer_alignment(B);
 
-#ifdef FLATBUFFERS_HAVE_ALIGNED_ALLOC
     size = (size + align - 1) & ~(align - 1);
     buffer = aligned_alloc(align, size);
-#else
-    buffer = (void *)(((size_t)malloc(size + align - 1) + align - 1) & ~(align - 1));
-#endif
 
     if (!buffer) {
         goto done;
     }
     if (!flatcc_builder_copy_buffer(B, buffer, size)) {
-        free(buffer);
+        aligned_free(buffer);
         buffer = 0;
         goto done;
     }
