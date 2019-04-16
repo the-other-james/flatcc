@@ -1,0 +1,14 @@
+// Test IDL for cFS EVS
+
+namespace cFSEVS.Test;
+
+table SendEvent {
+  EventID:uint16;
+  EventType:uint16;
+  Spec:string;
+}
+
+// enum Color:byte { Red = 0, Green, Blue = 2 }
+
+
+root_type SendEvent;
