@@ -13,6 +13,8 @@
  *
  */
 
+#include <stdio.h>
+
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
@@ -109,6 +111,29 @@ struct flatcc_iov_state {
         iov.iov[iov.count].iov_base = (void *)(base); iov.iov[iov.count].iov_len = (size); ++iov.count; }
 #define push_iov(base, size) push_iov_cond(base, size, 1)
 #define init_iov() { iov.len = 0; iov.count = 0; }
+
+#define FLAT_LIB_MAJOR_VERSION 1
+#define FLAT_LIB_MINOR_VERSION 0
+#define FLAT_LIB_REVISION      0
+#define FLAT_LIB_MISSION_REV   0
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+/*                                                                 */
+/* CFS Library Initialization Routine                              */
+/* cFE requires that a library have an initialization routine      */
+/*                                                                 */
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+int FLAT_LibInit(void)
+{
+  //CFE_ES_WriteToSysLog("FLAT Lib Initialized.  Version %d.%d.%d.%d\n",
+  printf("FLAT Lib Initialized.  Version %d.%d.%d.%d\n",
+                FLAT_LIB_MAJOR_VERSION,
+                FLAT_LIB_MINOR_VERSION,
+                FLAT_LIB_REVISION,
+                FLAT_LIB_MISSION_REV);
+  return 0;
+}
+/* Empty init to make cFS happy */
 
 
 int flatcc_builder_default_alloc(void *alloc_context, iovec_t *b, size_t request, int zero_fill, int hint)
