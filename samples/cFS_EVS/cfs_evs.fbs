@@ -1,14 +1,39 @@
-// Test IDL for cFS EVS
+// IDL for cFS EVS
 
-namespace cFSEVS.Test;
+namespace cFSEVS;
 
 table SendEvent {
-  EventID:uint16;
-  EventType:uint16;
-  Spec:string;
+    EventID:uint16;
+    EventType:uint16;
+    Spec:string;
+}
+
+table SendEventWithAppID {
+    EventID:uint16;
+    EventType:uint16;
+    AppID:uint32;
+    Spec:string;
+}
+
+union Args {
+    // CFE_EVS_Register
+    // CFE_EVS_Unregister
+    SendEvent,
+    SendEventWithAppID
+    // CFE_EVS_SendTimedEvent
+    // CFE_EVS_ResetFilter
+    // CFE_EVS_ResetAllFilters
 }
 
 // enum Color:byte { Red = 0, Green, Blue = 2 }
 
+// TODO: Make Function:returnType an enum? Use a union for return data? Add to "args"?
+// TODO: Rename Args / Function. Doesn't seem right / natural
+// TODO: I don't think the id is needed: the union has that info (Function_args_type)
+table Function {
+    id:int;
+    returnType:int;
+    args:Args;
+}
 
-root_type SendEvent;
+root_type Function;
